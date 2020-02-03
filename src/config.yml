@@ -1,0 +1,35 @@
+#Cooldown for the /tpa and /tpahere for essentials
+tpaCooldown: 5
+
+#Phantom Shield life time in seconds
+PhantomShieldsLifeTime: 2592000
+
+#Phantom Shield range
+PhantomShieldsRange: 150
+
+#Phantom Shield price
+PhantomShieldsPrice: 500
+
+#Phantom Shield item data
+PhantomShieldsItem:
+  ==: org.bukkit.inventory.ItemStack
+  v: 2230
+  type: WITHER_SKELETON_SPAWN_EGG
+  meta:
+    ==: ItemMeta
+    meta-type: SPAWN_EGG
+    display-name: §d§lPhantom §6§lShield
+    lore:
+    - §6Kills Phantoms within a 150 blocks radius
+    - §eLast for 30 real life days
+    - §bOnce places it can't be refunded
+    enchants:
+      ARROW_DAMAGE: 5
+    ItemFlags:
+    - HIDE_ENCHANTS
+    internal: H4sIAAAAAAAAAGWOwUrDQBRF7zStJgFBt3Yj/QA/wI3UILUgpVh1W14mz/SRzEzITCzu/HSTZiHi8l7Ou++kQIrk0QYJX69UKiQbt2rps48qRpp1PjizIcO4XGwPZPt0szsI18UiQboMoZW8C+xTAGqG6QN5vv8GYkxPV/OSLbeibyvrdJWTrl7Yiw9kNUPhIiO7FV29Nc/OBUQ420nNNgxrqp9wy7WKcL6q3VFsObQRrn6l3sVLXvPQJ0ieyBbrwOYkM4kxkQJzI5Z1Sx/hrhn1976ho91zWUaYZa4bn2HEr//jhk3ekuU/NPADcGCopzkBAAA=
+
+#Do not touch these
+PhantomShields: {}
+
+DisplayContainers: {}

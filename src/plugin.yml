@@ -1,0 +1,53 @@
+name: SKMCSurvivalExtra
+author: loohp
+version: 1.0
+api-version: 1.15
+main: com.loohp.skmcextra.Main
+description: Adds a few custom built feature into SKMC Survival
+depend: [WorldBorder, Essentials, LWC, Vault]
+prefix: SKMCExtra
+
+commands:
+  randomtp:
+    usage: /<command>
+    aliases: [rtp]
+    description: Allows you to teleport to a random location on a map
+  cooldown:
+    usage: /<command>
+    aliases: [cd]
+    description: Allows you to clear a player's cooldown
+  displaychest:
+    usage: /<command>
+    aliases: [displaycontainer]
+    description: Allows you to set or remove a display container
+  phantomshield:
+    usage: /<command>
+    aliases: [psd]
+    description: Allows you to set or give a phantomshield item
+  skmcsx:
+    usage: /<command>
+    description: Reload the plugin
+
+permissions:
+  skmcextra.rtp.self.anywhere:
+    description: Allows you to use the command /randomtp anywhere
+    default: op
+  skmcextra.rtp.self:
+    description: Allows you to use the command /randomtp
+    default: op
+  skmcextra.rtp.others:
+    description: Allows you to use the command /randomtp
+    default: op
+  skmcextra.admin.displaycontainers:
+    description: Allows users to modify display containers
+    default: op
+  skmcextra.admin.cooldownclear:
+    description: Allows users to clear a player's cooldown
+    default: op
+  skmcextra.admin.phantomshield:
+    description: Allows users to have admin rights on Phantom Shield related stuff
+    default: op
+  skmcextra.admin.reload:
+    description: Allows users to reload the plugin
+    default: op
+  
