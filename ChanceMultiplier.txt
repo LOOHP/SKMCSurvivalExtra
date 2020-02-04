@@ -1,4 +1,4 @@
-blazeRodMultiplier=40000
+blazeRodMultiplier=60000
 blazeRodNanaRod=17
 blazeRodNanaChoice=23
 randomMultiplier=10000
