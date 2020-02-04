@@ -1,0 +1,8 @@
+blazeRodMultiplier=40000
+blazeRodNanaRod=17
+blazeRodNanaChoice=23
+randomMultiplier=10000
+randomGoodDay=100
+randomWwww=200
+randomPhantomsWhere=300
+randomHi=400
