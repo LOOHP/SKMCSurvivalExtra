@@ -1,5 +1,8 @@
 package com.loohp.skmcextra;
 
+import java.sql.PreparedStatement;
+import java.sql.ResultSet;
+import java.sql.SQLException;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map.Entry;
@@ -74,7 +77,60 @@ import net.md_5.bungee.api.ChatColor;
 			}
 		}
 		
-		if (sender instanceof Player) {		
+		if (sender instanceof Player) {
+			
+			if (label.equalsIgnoreCase("togglehpscale") || label.equalsIgnoreCase("togglehealthscale") || label.equalsIgnoreCase("ths")) {
+				if (sender.hasPermission("skmcextra.health.scale.toggle")) {
+					Player player = (Player) sender;
+					Main.mysqlSetup(false);
+					
+					boolean scaleToggle = false;
+					
+					try {
+						PreparedStatement statement = Main.getConnection().prepareStatement("SELECT * FROM " + Main.table + " WHERE UUID=?");
+						statement.setString(1, player.getUniqueId().toString());
+						ResultSet results = statement.executeQuery();
+						results.next();
+						
+						scaleToggle = results.getBoolean("SCALE_TOGGLE");
+					} catch (SQLException e) {
+						e.printStackTrace();
+					}
+					
+					if (scaleToggle == true) {
+						scaleToggle = false;
+					} else {
+						scaleToggle = true;
+					}
+					
+					try {
+						PreparedStatement statement = Main.getConnection().prepareStatement("UPDATE " + Main.table + " SET SCALE_TOGGLE=? WHERE UUID=?");
+						statement.setBoolean(1, scaleToggle);
+						statement.setString(2, player.getUniqueId().toString());
+						statement.executeUpdate();
+						
+						player.setHealthScaled(scaleToggle);
+						
+						if (scaleToggle == true) {
+							player.sendMessage(ChatColor.GREEN + "Displaying Health over the scale of 20 hearts!");
+						} else {
+							player.sendMessage(ChatColor.YELLOW + "Displaying Health the vanilla way!");
+						}
+					} catch (SQLException e) {
+						e.printStackTrace();
+					}
+					
+					try {
+						Main.getConnection().close();
+					} catch (SQLException e) {
+						e.printStackTrace();
+					}
+				} else {
+					sender.sendMessage(ChatColor.RED + "You do not have permission to use that command!");
+				}
+				return true;
+			}
+			
 			if (label.equalsIgnoreCase("phantomshield") || label.equalsIgnoreCase("psd")) {
 				if (sender.hasPermission("skmcextra.admin.phantomshield")) {
 					if (args.length < 1) {

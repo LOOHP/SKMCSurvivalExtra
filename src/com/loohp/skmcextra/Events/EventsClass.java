@@ -1,5 +1,8 @@
 package com.loohp.skmcextra.Events;
 
+import java.sql.PreparedStatement;
+import java.sql.ResultSet;
+import java.sql.SQLException;
 import java.time.Instant;
 import java.time.LocalDateTime;
 import java.time.ZoneId;
@@ -10,19 +13,20 @@ import java.util.Map.Entry;
 import java.util.UUID;
 import java.util.regex.Pattern;
 
+import org.apache.commons.lang.WordUtils;
 import org.bukkit.Bukkit;
-//import java.text.DecimalFormat;
 import org.bukkit.Material;
+import org.bukkit.Sound;
 import org.bukkit.attribute.Attribute;
 import org.bukkit.attribute.AttributeModifier;
 import org.bukkit.block.Block;
 import org.bukkit.block.BlockFace;
 import org.bukkit.block.Container;
+import org.bukkit.block.ShulkerBox;
 import org.bukkit.enchantments.Enchantment;
 import org.bukkit.entity.Entity;
 import org.bukkit.entity.EntityType;
 import org.bukkit.entity.LivingEntity;
-//import org.bukkit.entity.Entity;
 import org.bukkit.entity.Player;
 import org.bukkit.event.EventHandler;
 import org.bukkit.event.EventPriority;
@@ -37,34 +41,268 @@ import org.bukkit.event.entity.PlayerDeathEvent;
 import org.bukkit.event.inventory.ClickType;
 import org.bukkit.event.inventory.InventoryAction;
 import org.bukkit.event.inventory.InventoryClickEvent;
+import org.bukkit.event.inventory.InventoryCloseEvent;
+import org.bukkit.event.inventory.InventoryType;
 import org.bukkit.event.player.AsyncPlayerChatEvent;
 import org.bukkit.event.player.PlayerCommandPreprocessEvent;
 import org.bukkit.event.player.PlayerInteractEntityEvent;
 import org.bukkit.event.player.PlayerInteractEvent;
 import org.bukkit.event.player.PlayerMoveEvent;
+import org.bukkit.event.player.PlayerQuitEvent;
 import org.bukkit.event.player.PlayerTeleportEvent;
 import org.bukkit.inventory.EquipmentSlot;
 import org.bukkit.inventory.Inventory;
 import org.bukkit.inventory.ItemFlag;
-//import org.bukkit.event.vehicle.VehicleMoveEvent;
-//import org.bukkit.event.vehicle.VehicleUpdateEvent;
 import org.bukkit.inventory.ItemStack;
+import org.bukkit.inventory.meta.BlockStateMeta;
 import org.bukkit.inventory.meta.ItemMeta;
-//import org.bukkit.plugin.Plugin;
 import org.bukkit.potion.PotionEffect;
 import org.bukkit.potion.PotionEffectType;
+import org.bukkit.scheduler.BukkitRunnable;
 
 import com.loohp.skmcextra.Main;
 
+import net.craftersland.data.bridge.PD;
+import net.craftersland.data.bridge.api.events.SyncCompleteEvent;
 import net.ess3.api.MaxMoneyException;
 import net.ess3.api.events.TPARequestEvent;
 import net.md_5.bungee.api.ChatColor;
 
-//import net.md_5.bungee.api.ChatColor;
-//import net.md_5.bungee.api.ChatMessageType;
-//import net.md_5.bungee.api.chat.TextComponent;
-
 public class EventsClass implements Listener {
+	
+	@EventHandler
+	public void onHealthSync(SyncCompleteEvent event) {
+		Player player = event.getPlayer();
+		UUID uuid = player.getUniqueId();
+		
+		new BukkitRunnable() {
+        
+			@Override
+			public void run() {
+		
+				Main.mysqlSetup(false);
+				
+				double health = 20.0;
+				boolean scaleToggle = false;
+				
+				if (playerExists(uuid) == false) {
+					createPlayer(uuid, player);
+				} else {
+					try {
+						PreparedStatement statement = Main.getConnection().prepareStatement("SELECT * FROM " + Main.table + " WHERE UUID=?");
+						statement.setString(1, uuid.toString());
+						ResultSet results = statement.executeQuery();
+						results.next();
+						
+						health = results.getDouble("HEALTH");
+						scaleToggle = results.getBoolean("SCALE_TOGGLE");
+					} catch (SQLException e) {
+						e.printStackTrace();
+					}
+				}
+				
+				try {
+					Main.getConnection().close();
+				} catch (SQLException e) {
+					e.printStackTrace();
+				}
+				
+				double max_health = player.getAttribute(Attribute.GENERIC_MAX_HEALTH).getBaseValue();
+				player.getAttribute(Attribute.GENERIC_MAX_HEALTH).setBaseValue(health);
+				player.setHealth(health);
+				player.getAttribute(Attribute.GENERIC_MAX_HEALTH).setBaseValue(max_health);
+				
+				if (PD.instance.getConfig().getBoolean("Debug.HealthSync") == true) {
+					Bukkit.getConsoleSender().sendMessage("[MysqlPlayerDataBridge - SKMCHealthPatch] Debug Health - Set data - " + player.getName() + " - Health: " + health);
+				}
+				
+				player.setHealthScaled(scaleToggle);
+			}
+		}.runTaskLater(Main.skmcsx, 5);
+	}
+	
+	@EventHandler
+	public void onHealthSave(PlayerQuitEvent event) {
+		Player player = event.getPlayer();
+		UUID uuid = player.getUniqueId();
+		
+		Main.mysqlSetup(false);
+		
+		if (playerExists(uuid) == false) {
+			createPlayer(uuid, player);
+		} else {
+			try {
+				PreparedStatement statement = Main.getConnection().prepareStatement("UPDATE " + Main.table + " SET HEALTH=? WHERE UUID=?");
+				statement.setDouble(1, player.getHealth());
+				statement.setString(2, uuid.toString());
+				statement.executeUpdate();
+			} catch (SQLException e) {
+				e.printStackTrace();
+			}
+		}
+		
+		if (PD.instance.getConfig().getBoolean("Debug.HealthSync") == true) {
+			Bukkit.getConsoleSender().sendMessage("[MysqlPlayerDataBridge - SKMCHealthPatch] Debug Health - Data save - " + player.getName() + " - Health: " + player.getHealth());
+		}
+		
+		try {
+			Main.getConnection().close();
+		} catch (SQLException e) {
+			e.printStackTrace();
+		}
+	}
+	
+	public boolean playerExists(UUID uuid) {
+		try {
+			PreparedStatement statement = Main.getConnection().prepareStatement("SELECT * FROM " + Main.table + " WHERE UUID=?");
+			statement.setString(1, uuid.toString());
+
+			ResultSet results = statement.executeQuery();
+			if (results.next()) {
+				return true;
+			}
+
+		} catch (SQLException e) {
+			e.printStackTrace();
+		}
+		return false;
+	}
+
+	public void createPlayer(UUID uuid, Player player) {
+		try {
+			PreparedStatement insert = Main.getConnection().prepareStatement("INSERT INTO " + Main.table + " (UUID,NAME,HEALTH,SCALE_TOGGLE) VALUES (?,?,?,?)");
+			insert.setString(1, uuid.toString());
+			insert.setString(2, player.getName());
+			insert.setDouble(3, player.getHealth());
+			insert.setBoolean(4, false);
+			insert.executeUpdate();
+		} catch (SQLException e) {
+			e.printStackTrace();
+		}
+	}
+	
+	@EventHandler
+	public void onRightClickShulkerBoxItem(InventoryClickEvent event) {
+		Player player = (Player) event.getWhoClicked();
+		if (Main.shulkerView.containsKey(player)) {
+			if (event.getView().getTopInventory().equals(Main.shulkerView.get(player))) {
+				event.setCancelled(true);
+				if (event.getRawSlot() != 44) {
+					return;
+				} else {
+			        player.closeInventory();
+			        return;
+				}	
+			}		
+		}
+		if (!event.getClick().equals(ClickType.RIGHT)) {
+			return;
+		}
+		if (event.getCurrentItem() == null) {
+			return;
+		}
+		if (!event.getCurrentItem().getType().toString().toUpperCase().contains("SHULKER_BOX")) {
+			return;
+		}
+		if (!player.getOpenInventory().getTopInventory().getType().equals(InventoryType.CRAFTING)) {
+			if (!Main.isMPDB.containsKey(player)) {
+				Main.shulkerLastInv.put(player, player.getOpenInventory().getTopInventory());
+			}
+		}
+		ItemStack item = event.getCurrentItem();
+	    if(item.getItemMeta() instanceof BlockStateMeta){
+	        BlockStateMeta im = (BlockStateMeta)item.getItemMeta();
+	        if(im.getBlockState() instanceof ShulkerBox){
+	            ShulkerBox shulker = (ShulkerBox) im.getBlockState();
+	            Inventory inv = Bukkit.createInventory(null, 45, WordUtils.capitalize(event.getCurrentItem().getType().toString().toLowerCase().replace("_", " ")) + " Content");
+	            inv.setContents(shulker.getInventory().getContents());
+	            ItemStack pane = new ItemStack(Material.MAGENTA_STAINED_GLASS_PANE, 1);
+	            ItemMeta panemeta = pane.getItemMeta();
+	            panemeta.setDisplayName(ChatColor.LIGHT_PURPLE + "");
+	            pane.setItemMeta(panemeta);
+	            inv.setItem(27, pane);
+	            inv.setItem(28, pane);
+	            inv.setItem(29, pane);
+	            inv.setItem(30, pane);
+	            inv.setItem(31, pane);
+	            inv.setItem(32, pane);
+	            inv.setItem(33, pane);
+	            inv.setItem(34, pane);
+	            inv.setItem(35, pane);
+	            ItemStack barrier = new ItemStack(Material.BARRIER, 1);
+	            ItemMeta barriermeta = barrier.getItemMeta();
+	            barriermeta.setDisplayName(ChatColor.RED + "Exit Preview");
+	            barrier.setItemMeta(barriermeta);
+	            inv.setItem(44, barrier);
+	            Main.shulkerView.put(player, inv);
+	            Bukkit.getScheduler().runTask(Main.skmcsx, () -> player.openInventory(inv));
+	        }
+	    }
+	    event.setCancelled(true);
+	}
+	
+	@EventHandler
+	public void onCloseShulkerBoxView(InventoryCloseEvent event) {
+        Player player = (Player) event.getPlayer();
+        if (Main.shulkerLastInv.containsKey(player)) {
+        	if (!Main.shulkerView.containsKey(player)) {
+        		if (Main.isMPDB.containsKey(player)) {
+            		Main.isMPDB.remove(player);
+            	}
+        	}
+        }
+        if (!Main.shulkerView.containsKey(player)) {
+        	return;
+        }
+        if (event.getInventory().equals(Main.shulkerView.get(player))) {
+        	if (Main.shulkerLastInv.containsKey(player) && !Main.isMPDB.containsKey(player)) {
+        		Bukkit.getScheduler().runTaskLater(Main.skmcsx, () -> player.openInventory(Main.shulkerLastInv.get(player)), 1);
+        		Bukkit.getScheduler().runTaskLater(Main.skmcsx, () -> Main.shulkerLastInv.remove(player), 2);
+        	} else {
+        		String string = Main.isMPDB.get(player);
+        		Bukkit.getScheduler().runTaskLater(Main.skmcsx, () -> player.chat(string), 1);
+        	}
+        	Main.shulkerView.remove(player);
+        }
+    }
+	
+	@EventHandler
+	public void onMPDBbutMoves(PlayerMoveEvent event) {
+		Player player = (Player) event.getPlayer();
+		if (Main.isMPDB.containsKey(player)) {
+			Main.isMPDB.remove(player);
+		}
+	}
+	
+	@SuppressWarnings("deprecation")
+	@EventHandler
+	public void onPlaceHat(InventoryClickEvent event) {
+		if (event.getCursor() == null || event.getCursor().getType().equals(Material.AIR)) {
+			return;
+		}
+		if (event.getClickedInventory() == null || !(event.getClickedInventory().getType().equals(InventoryType.PLAYER) || event.getClickedInventory().getType().equals(InventoryType.CREATIVE))) {
+			return;
+		}
+		Player player = (Player) event.getWhoClicked();
+		
+		if (event.getRawSlot() == 5) {
+			if (player.hasPermission("essentials.hat")) {
+				if (!player.hasPermission("essentials.hat.prevent-type." + event.getCursor().getType().toString())) {
+					if (!event.getCursor().getType().toString().toLowerCase().contains("helmet")) {
+						if (event.getClick().isLeftClick()) {
+							Bukkit.getPluginManager().callEvent(new InventoryClickEvent(event.getView(), event.getSlotType(), event.getSlot(), ClickType.RIGHT, InventoryAction.SWAP_WITH_CURSOR));
+							event.setCancelled(true);
+							return;
+						}
+						ItemStack oriHelmet = player.getInventory().getHelmet();
+						ItemStack newHelmet = event.getCursor();
+						player.getInventory().setHelmet(newHelmet);
+						event.setCursor(oriHelmet);
+					}
+				}
+			}
+		}		
+	}
 	
 	@EventHandler
     public void onPlayerChat(AsyncPlayerChatEvent event) {
@@ -101,6 +339,7 @@ public class EventsClass implements Listener {
 		Main.skmcsx.getConfig().set("PhantomShields." + entity.getUniqueId().toString() + ".Range", range);
 		Main.skmcsx.saveConfig();
 		player.sendMessage(ChatColor.GREEN + "Range sucessfully updated!");
+		player.playSound(player.getLocation(), Sound.BLOCK_ANVIL_LAND, 1.0F, 8.0F);
 		Main.PSEditRangeTimeOut.remove(player);
 		Main.PSEditRange.remove(player);
 		Bukkit.getScheduler().runTask(Main.skmcsx, () -> Main.openPSGUI(player, entity));
@@ -136,6 +375,7 @@ public class EventsClass implements Listener {
         }
 
         if (event.getRawSlot() == 12) {
+        	player.playSound(player.getLocation(), Sound.BLOCK_NOTE_BLOCK_PLING, 1.0F, 8.0F);
         	player.sendMessage(ChatColor.GREEN + "Please type the new radius in the chat! (Accepts 0 - 150)");
         	Main.PSEditRange.put(player, entity);
         	long unixTime = System.currentTimeMillis();
@@ -144,6 +384,7 @@ public class EventsClass implements Listener {
         }
         
         if (event.getRawSlot() == 14) {
+        	player.playSound(player.getLocation(), Sound.BLOCK_ANVIL_LAND, 1.0F, 8.0F);
         	player.sendMessage(ChatColor.YELLOW + "Removed Phantom Shield! A Phantom Shield with the remaining duration has been given to you!");
         	ItemStack item = Main.skmcsx.getConfig().getItemStack("PhantomShieldsItem");
 			item.setAmount(1);
@@ -235,14 +476,32 @@ public class EventsClass implements Listener {
 		if (entity.getType().equals(EntityType.WITHER_SKELETON) && entity.isSilent() == true) {
 			LivingEntity livingentity = (LivingEntity) entity;
 			if (livingentity.getEquipment().getItemInMainHand().getType().equals(Material.PHANTOM_SPAWN_EGG) && livingentity.getEquipment().getItemInOffHand().getType().equals(Material.PHANTOM_MEMBRANE)) {
+				for (Entry<UUID, Player> entry : Main.PSPlayerPair.entrySet()) {
+					if (entry.getValue().equals(event.getPlayer())) {
+						entry.getValue().sendMessage(ChatColor.RED + "Please wait..");
+						event.setCancelled(true);
+						return;
+					}
+				}
+				for (Entry<Player, Long> entry : Main.possiblePS.entrySet()) {
+					if (entry.getKey().equals(event.getPlayer())) {
+						entry.getKey().sendMessage(ChatColor.RED + "Please wait..");
+						event.setCancelled(true);
+						return;
+					}
+				}
 				String owner = Main.skmcsx.getConfig().getString("PhantomShields." + entity.getUniqueId().toString() + ".Owner");
+				if (!owner.equals(player.getName())) {
+					long range = Main.skmcsx.getConfig().getLong("PhantomShields." + entity.getUniqueId().toString() + ".Range");
+					player.sendMessage(ChatColor.AQUA + "This " + ChatColor.LIGHT_PURPLE + "Phantom " + ChatColor.GOLD + "Shield " + ChatColor.AQUA + "has a range of " + ChatColor.LIGHT_PURPLE + range + ChatColor.AQUA + " and it belongs to " + ChatColor.YELLOW + owner + ChatColor.AQUA + "!");
+				}
 				if (player.hasPermission("skmcextra.admin.phantomshield") && !owner.equals(player.getName())) {
 					player.sendMessage(ChatColor.YELLOW + "You are bypassing protection on this Phantom Shield that belongs to " + ChatColor.GREEN + owner + ChatColor.YELLOW + "!");
 					Main.openPSGUI(player, entity);
-				} else if (!owner.equals(player.getName())) {
-					player.sendMessage(ChatColor.RED + "You cannot edit this Phantom Shield! It belongs to " + ChatColor.YELLOW + owner + ChatColor.RED + "!");
+					player.playSound(player.getLocation(), Sound.BLOCK_NOTE_BLOCK_BASS, 1.0F, 8.0F);
 				} else if (owner.equals(player.getName())) {
 					Main.openPSGUI(player, entity);
+					player.playSound(player.getLocation(), Sound.BLOCK_NOTE_BLOCK_PLING, 1.0F, 8.0F);
 				}
 			}
 		}
@@ -271,12 +530,18 @@ public class EventsClass implements Listener {
 				if (livingentity.getEquipment().getItemInMainHand().getType().equals(Material.PHANTOM_SPAWN_EGG) && livingentity.getEquipment().getItemInOffHand().getType().equals(Material.PHANTOM_MEMBRANE)) {
 					String owner = Main.skmcsx.getConfig().getString("PhantomShields." + entity.getUniqueId().toString() + ".Owner");
 					if (player.hasPermission("skmcextra.admin.phantomshield")) {
-						player.sendMessage(ChatColor.YELLOW + "You are bypassing protection on this Phantom Shield that belongs to " + ChatColor.GREEN + owner + ChatColor.YELLOW + "!");
+						if (!owner.equals(player.getName())) {
+							player.sendMessage(ChatColor.YELLOW + "You are bypassing protection on this Phantom Shield that belongs to " + ChatColor.GREEN + owner + ChatColor.YELLOW + "!");
+						} else {
+							player.sendMessage(ChatColor.YELLOW + "You are bypassing protection from damaging phantom shields! Note that items will not be refunded this way.");
+						}
 					} else if (!owner.equals(player.getName())) {
 						event.setCancelled(true);
+						player.playSound(player.getLocation(), Sound.BLOCK_NOTE_BLOCK_BASS, 1.0F, 8.0F);
 						player.sendMessage(ChatColor.RED + "You cannot remove this Phantom Shield! It belongs to " + ChatColor.YELLOW + owner + ChatColor.RED + "!");
 					} else {
 						event.setCancelled(true);
+						player.playSound(player.getLocation(), Sound.BLOCK_NOTE_BLOCK_BASS, 1.0F, 8.0F);
 						player.sendMessage(ChatColor.RED + "You cannot damage Phantom Shields! Right Click to remove it!");
 					}
 				}
@@ -300,12 +565,21 @@ public class EventsClass implements Listener {
 			if (livingentity.getEquipment().getItemInMainHand().getType().equals(Material.PHANTOM_SPAWN_EGG) && livingentity.getEquipment().getItemInOffHand().getType().equals(Material.PHANTOM_MEMBRANE)) {
 				livingentity.addPotionEffect(new PotionEffect(PotionEffectType.WATER_BREATHING, 999999999, 0));
 				long unixTime = System.currentTimeMillis();
+				boolean paired = false;
 				for (Entry<Player, Long> entry : Main.possiblePS.entrySet()) {
-					if (unixTime - (entry.getValue()) < 700 && entity.getNearbyEntities(6, 6, 6).contains(Bukkit.getEntity(entry.getKey().getUniqueId()))) {
-						Main.PSPlayerPair.put(entry.getKey(), entity.getUniqueId());
+					if (unixTime - (entry.getValue()) < 700 && entity.getNearbyEntities(10, 10, 10).contains(Bukkit.getEntity(entry.getKey().getUniqueId()))) {
+						Main.PSPlayerPair.put(entity.getUniqueId(), entry.getKey());
+						entry.getKey().playSound(entry.getKey().getLocation(), Sound.ENTITY_PLAYER_LEVELUP, 1.0F, 8.0F);
 						Main.possiblePS.remove(entry.getKey());
+						paired = true;
 						break;
 					}
+				}
+				if (paired == false) {
+					Player playerPair = (Player) Main.getClosestPlayer(entity, 7);
+					Main.PSPlayerPair.put(entity.getUniqueId(), playerPair);
+					playerPair.playSound(playerPair.getLocation(), Sound.ENTITY_PLAYER_LEVELUP, 1.0F, 8.0F);
+					Main.possiblePS.remove(playerPair);
 				}
 			}
 		}
@@ -314,7 +588,29 @@ public class EventsClass implements Listener {
 	@EventHandler
     public void placeShield(PlayerInteractEvent event){
 		if (event.getItem() != null) {
+			ItemMeta meta1 = event.getItem().getItemMeta();
+			if (meta1.hasLore() == false) {
+				return;
+			}
+			ArrayList<String> lore1 = (ArrayList<String>) meta1.getLore();
+			if (lore1.size() != 6) {
+				return;
+			}
 			if (event.getAction().equals(Action.RIGHT_CLICK_BLOCK) && event.getItem().getType().equals(Material.WITHER_SKELETON_SPAWN_EGG)){
+				for (Entry<UUID, Player> entry : Main.PSPlayerPair.entrySet()) {
+					if (entry.getValue().equals(event.getPlayer())) {
+						entry.getValue().sendMessage(ChatColor.RED + "Please wait a few seconds between placing Phantom Shields!");
+						event.setCancelled(true);
+						return;
+					}
+				}
+				for (Entry<Player, Long> entry : Main.possiblePS.entrySet()) {
+					if (entry.getKey().equals(event.getPlayer())) {
+						entry.getKey().sendMessage(ChatColor.RED + "Please wait a few seconds between placing Phantom Shields!");
+						event.setCancelled(true);
+						return;
+					}
+				}
 				long unixTime = System.currentTimeMillis();
 				Main.possiblePS.put(event.getPlayer(), unixTime);
 				ItemStack item = event.getItem();
@@ -629,10 +925,22 @@ public class EventsClass implements Listener {
 		}
 	}
 	
-	@EventHandler
+	@EventHandler(priority = EventPriority.LOWEST)
 	public void onInteract(InventoryClickEvent event) {
+		if (event.getClickedInventory() == null) {
+			return;
+		}
+		if (event.isCancelled() == true) {
+			return;
+		}
 		if (!event.getAction().equals(InventoryAction.NOTHING) && !event.getAction().equals(InventoryAction.UNKNOWN) && !event.getAction().equals(InventoryAction.DROP_ALL_CURSOR) && !event.getAction().equals(InventoryAction.DROP_ALL_SLOT) && !event.getAction().equals(InventoryAction.DROP_ONE_CURSOR) && !event.getAction().equals(InventoryAction.DROP_ONE_SLOT  )) {
+			if (event.getCurrentItem() == null) {
+				return;
+			}
 			ItemStack item = event.getCurrentItem();
+			if (item.hasItemMeta() == false) {
+				return;
+			}
 			ItemMeta meta = item.getItemMeta();
 			if (item.getType().equals(Material.DIAMOND_SWORD) && meta.hasLore() == true) {
 				if (meta.getLore().contains("§eThe Legendary Sword from §6the sky~~")) {
@@ -816,6 +1124,7 @@ public class EventsClass implements Listener {
 		}
 	}
 	
+	@SuppressWarnings("deprecation")
 	@EventHandler
 	public void onCommand(PlayerCommandPreprocessEvent event) {
 		if (event.getMessage().toLowerCase().startsWith("/openinv") || event.getMessage().toLowerCase().startsWith("/inv") || event.getMessage().toLowerCase().startsWith("/invsee")) {
@@ -825,6 +1134,23 @@ public class EventsClass implements Listener {
 				if (Bukkit.getServer().getPlayer(target) == null) {
 					event.setCancelled(true);
 					event.getPlayer().chat("/mpdb inv " + target);
+					if (Bukkit.getOfflinePlayer(target) != null) {
+						if (!Main.isMPDB.containsKey(event.getPlayer())) {
+							Main.isMPDB.put(event.getPlayer(), "/mpdb inv " + target);
+						}
+					}
+				}
+			}
+		}
+		
+		if (event.getMessage().toLowerCase().startsWith("/mbdb inv")) {
+			String[] raw = event.getMessage().split(" ");
+			if (raw.length > 0) {
+				String target = raw[1];
+				if (Bukkit.getOfflinePlayer(target) != null) {
+					if (!Main.isMPDB.containsKey(event.getPlayer())) {
+						Main.isMPDB.put(event.getPlayer(), "/mpdb inv " + target);
+					}
 				}
 			}
 		}
@@ -835,15 +1161,25 @@ public class EventsClass implements Listener {
 				String target = raw[1];
 				if (Bukkit.getServer().getPlayer(target) == null) {
 					event.setCancelled(true);
-					event.getPlayer().chat("/mpdb end " + target);				
+					event.getPlayer().chat("/mpdb end " + target);	
+					if (Bukkit.getOfflinePlayer(target) != null) {
+						if (!Main.isMPDB.containsKey(event.getPlayer())) {
+							Main.isMPDB.put(event.getPlayer(), "/mpdb end " + target);
+						}
+					}
 				}
 			}
 		}
 		
-		if (event.getMessage().toLowerCase().equals("/rename &d") || event.getMessage().toLowerCase().equals("/epicrename:rename &d")) {
-			event.setCancelled(true);
-			if (!event.getPlayer().hasPermission("skmcextra.admin.displaycontainers")) {
-				event.getPlayer().sendMessage(ChatColor.RED + "You are not allowed to do that");
+		if (event.getMessage().toLowerCase().startsWith("/mbdb end")) {
+			String[] raw = event.getMessage().split(" ");
+			if (raw.length > 0) {
+				String target = raw[1];
+				if (Bukkit.getOfflinePlayer(target) != null) {
+					if (!Main.isMPDB.containsKey(event.getPlayer())) {
+						Main.isMPDB.put(event.getPlayer(), "/mpdb end " + target);
+					}
+				}
 			}
 		}
 	}
